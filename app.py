@@ -130,27 +130,43 @@ def main():
     elif menu == "⚙️ Atualizar Dados":
         show_atualizar_dados(db)
 
+def safe_float_format(value, default=0.0):
+    """Formata valor float tratando None/NaN"""
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
+def safe_int_format(value, default=0):
+    """Formata valor int tratando None/NaN"""
+    if value is None or pd.isna(value):
+        return default
+    return int(value)
+
 def show_dashboard(db):
     """Mostra dashboard principal com KPIs"""
     st.title("📊 Dashboard Principal")
-    
+
     # KPIs principais
     col1, col2, col3, col4 = st.columns(4)
-    
+
     # Buscar métricas
     conn = db.connect()
-    
+
     # Total de vendas
-    total_vendas = pd.read_sql("SELECT SUM(total) as total FROM vendas", conn)['total'][0]
-    
+    total_vendas_result = pd.read_sql("SELECT SUM(total) as total FROM vendas", conn)
+    total_vendas = safe_float_format(total_vendas_result['total'][0] if not total_vendas_result.empty else None)
+
     # Total de clientes
-    total_clientes = pd.read_sql("SELECT COUNT(DISTINCT parceiro) as total FROM vendas", conn)['total'][0]
-    
+    total_clientes_result = pd.read_sql("SELECT COUNT(DISTINCT parceiro) as total FROM vendas", conn)
+    total_clientes = safe_int_format(total_clientes_result['total'][0] if not total_clientes_result.empty else None)
+
     # Total de produtos
-    total_produtos = pd.read_sql("SELECT COUNT(DISTINCT produto) as total FROM vendas", conn)['total'][0]
-    
+    total_produtos_result = pd.read_sql("SELECT COUNT(DISTINCT produto) as total FROM vendas", conn)
+    total_produtos = safe_int_format(total_produtos_result['total'][0] if not total_produtos_result.empty else None)
+
     # Ticket médio
-    ticket_medio = pd.read_sql("SELECT AVG(total) as media FROM vendas", conn)['media'][0]
+    ticket_medio_result = pd.read_sql("SELECT AVG(total) as media FROM vendas", conn)
+    ticket_medio = safe_float_format(ticket_medio_result['media'][0] if not ticket_medio_result.empty else None)
     
     with col1:
         st.metric("💰 Faturamento Total", f"R$ {total_vendas:,.2f}")
@@ -256,11 +272,13 @@ def show_analise_clientes(db, analisador):
             )
         
         with col3:
+            # Calcular max_value tratando NaN
+            max_dias = safe_int_format(clientes_df['dias_desde_ultima'].max(), default=365)
             dias_filter = st.slider(
                 "Dias desde última compra",
                 min_value=0,
-                max_value=int(clientes_df['dias_desde_ultima'].max()),
-                value=(0, int(clientes_df['dias_desde_ultima'].max()))
+                max_value=max_dias,
+                value=(0, max_dias)
             )
         
         # Aplicar filtros
@@ -280,9 +298,11 @@ def show_analise_clientes(db, analisador):
         with col1:
             st.metric("Total de Clientes", len(filtered_df))
         with col2:
-            st.metric("Valor Total", f"R$ {filtered_df['total_compras'].sum():,.2f}")
+            valor_total = safe_float_format(filtered_df['total_compras'].sum() if not filtered_df.empty else 0)
+            st.metric("Valor Total", f"R$ {valor_total:,.2f}")
         with col3:
-            st.metric("Ticket Médio", f"R$ {filtered_df['ticket_medio'].mean():,.2f}")
+            ticket_medio_calc = safe_float_format(filtered_df['ticket_medio'].mean() if not filtered_df.empty else 0)
+            st.metric("Ticket Médio", f"R$ {ticket_medio_calc:,.2f}")
         
         # Tabela de clientes - Mostrar código e nome
         if 'cod_parceiro' in filtered_df.columns:
@@ -589,13 +609,17 @@ def show_analise_produtos(db, analisador):
                 metricas = analise['metricas']
                 
                 with col1:
-                    st.metric("Valor Total", f"R$ {metricas['valor_total']:,.2f}")
+                    valor_total_prod = safe_float_format(metricas.get('valor_total', 0))
+                    st.metric("Valor Total", f"R$ {valor_total_prod:,.2f}")
                 with col2:
-                    st.metric("Qtd Vendida", f"{metricas['quantidade_vendida']:,.0f}")
+                    qtd_vendida = safe_int_format(metricas.get('quantidade_vendida', 0))
+                    st.metric("Qtd Vendida", f"{qtd_vendida:,.0f}")
                 with col3:
-                    st.metric("Clientes Únicos", metricas['clientes_unicos'])
+                    clientes_unicos = safe_int_format(metricas.get('clientes_unicos', 0))
+                    st.metric("Clientes Únicos", clientes_unicos)
                 with col4:
-                    st.metric("Taxa Recompra", f"{metricas['taxa_recompra']:.1f}%")
+                    taxa_recompra = safe_float_format(metricas.get('taxa_recompra', 0))
+                    st.metric("Taxa Recompra", f"{taxa_recompra:.1f}%")
                 
                 # Evolução temporal
                 st.subheader("📈 Evolução de Vendas")
@@ -811,25 +835,35 @@ def show_relatorios(db, analisador_clientes, analisador_produtos):
         # KPIs
         conn = db.connect()
         
-        kpis = pd.read_sql("""
-            SELECT 
+        kpis_result = pd.read_sql("""
+            SELECT
                 COUNT(*) as total_clientes,
                 SUM(total_compras) as faturamento_total,
                 AVG(ticket_medio) as ticket_medio_geral,
                 AVG(dias_desde_ultima) as media_dias_inativos
             FROM clientes_metricas
-        """, conn).iloc[0]
-        
+        """, conn)
+
+        if kpis_result.empty:
+            st.error("Não há dados suficientes para gerar o relatório.")
+            return
+
+        kpis = kpis_result.iloc[0]
+
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
-            st.metric("Total Clientes", f"{kpis['total_clientes']:,.0f}")
+            total_clientes = safe_int_format(kpis['total_clientes'])
+            st.metric("Total Clientes", f"{total_clientes:,.0f}")
         with col2:
-            st.metric("Faturamento Total", f"R$ {kpis['faturamento_total']:,.2f}")
+            faturamento_total = safe_float_format(kpis['faturamento_total'])
+            st.metric("Faturamento Total", f"R$ {faturamento_total:,.2f}")
         with col3:
-            st.metric("Ticket Médio", f"R$ {kpis['ticket_medio_geral']:,.2f}")
+            ticket_medio = safe_float_format(kpis['ticket_medio_geral'])
+            st.metric("Ticket Médio", f"R$ {ticket_medio:,.2f}")
         with col4:
-            st.metric("Média Dias Inativos", f"{kpis['media_dias_inativos']:.0f}")
+            media_dias = safe_float_format(kpis['media_dias_inativos'])
+            st.metric("Média Dias Inativos", f"{media_dias:.0f}")
         
         # Distribuição de segmentos
         segmentos_df = pd.read_sql("""
@@ -972,25 +1006,37 @@ def show_atualizar_dados(db):
     
     conn = db.connect()
     
-    info = pd.read_sql("""
-        SELECT 
+    info_result = pd.read_sql("""
+        SELECT
             (SELECT COUNT(*) FROM vendas) as total_vendas,
             (SELECT COUNT(DISTINCT parceiro) FROM vendas) as total_clientes,
             (SELECT COUNT(DISTINCT produto) FROM vendas) as total_produtos,
             (SELECT MIN(data) FROM vendas) as primeira_venda,
             (SELECT MAX(data) FROM vendas) as ultima_venda
-    """, conn).iloc[0]
-    
+    """, conn)
+
+    if info_result.empty:
+        st.error("Não há dados no banco de dados.")
+        return
+
+    info = info_result.iloc[0]
+
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
-        st.metric("Total de Vendas", f"{info['total_vendas']:,}")
+        total_vendas = safe_int_format(info['total_vendas'])
+        st.metric("Total de Vendas", f"{total_vendas:,}")
     with col2:
-        st.metric("Total de Clientes", f"{info['total_clientes']:,}")
+        total_clientes = safe_int_format(info['total_clientes'])
+        st.metric("Total de Clientes", f"{total_clientes:,}")
     with col3:
-        st.metric("Total de Produtos", f"{info['total_produtos']:,}")
-    
-    st.info(f"📅 Período: {info['primeira_venda']} até {info['ultima_venda']}")
+        total_produtos = safe_int_format(info['total_produtos'])
+        st.metric("Total de Produtos", f"{total_produtos:,}")
+
+    # Verificar se há datas válidas
+    primeira_venda = info['primeira_venda'] if info['primeira_venda'] is not None else "N/A"
+    ultima_venda = info['ultima_venda'] if info['ultima_venda'] is not None else "N/A"
+    st.info(f"📅 Período: {primeira_venda} até {ultima_venda}")
 
 if __name__ == "__main__":
     main()
