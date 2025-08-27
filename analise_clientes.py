@@ -451,7 +451,47 @@ class AnalisadorClientes:
             'para_reativar': para_reativar.to_dict('records'),
             'cross_sell': cross_sell.to_dict('records')
         }
-    
+
+    def get_clientes_uma_compra(self):
+        """Retorna clientes que compraram apenas uma vez"""
+        conn = self.db.connect()
+
+        # Buscar clientes com apenas uma compra
+        uma_compra = pd.read_sql('''
+            SELECT
+                c.parceiro,
+                c.total_compras,
+                c.qtd_compras,
+                c.ticket_medio,
+                c.dias_desde_ultima,
+                c.ultima_compra,
+                c.segmento
+            FROM clientes_metricas c
+            WHERE c.qtd_compras = 1
+            ORDER BY c.total_compras DESC
+        ''', conn)
+
+        # Para cada cliente, buscar os produtos comprados
+        clientes_com_produtos = []
+        for _, cliente in uma_compra.iterrows():
+            # Buscar produtos comprados por este cliente
+            produtos = pd.read_sql('''
+                SELECT
+                    v.produto,
+                    v.quantidade,
+                    v.total,
+                    v.data
+                FROM vendas v
+                WHERE v.parceiro = ?
+                ORDER BY v.data DESC
+            ''', conn, params=[cliente['parceiro']])
+
+            cliente_dict = cliente.to_dict()
+            cliente_dict['produtos'] = produtos.to_dict('records')
+            clientes_com_produtos.append(cliente_dict)
+
+        return clientes_com_produtos
+
     def gerar_script_abordagem(self, cliente_id):
         """Gera script personalizado de abordagem para o cliente"""
         # Verificar se usar v2

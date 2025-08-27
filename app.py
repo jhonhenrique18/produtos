@@ -744,7 +744,7 @@ def show_acoes_followup(db, analisador):
     # Buscar clientes para ação
     acoes = analisador.get_clientes_para_acao()
     
-    tab1, tab2, tab3 = st.tabs(["Clientes em Risco", "Reativação", "Cross-sell"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Clientes em Risco", "Reativação", "Cross-sell", "Uma Compra"])
     
     with tab1:
         st.subheader("🚨 Clientes em Risco - Ação Imediata")
@@ -835,6 +835,130 @@ def show_acoes_followup(db, analisador):
                         st.write("**Produtos para oferecer:**")
                         for prod in produtos_nao:
                             st.write(f"• {prod['produto']}")
+
+    with tab4:
+        st.subheader("🔥 Clientes com Uma Compra - Oportunidade de Follow-up")
+
+        # Buscar clientes com uma compra
+        clientes_uma_compra = analisador.get_clientes_uma_compra()
+
+        if clientes_uma_compra:
+            st.info(f"🎯 Encontrados {len(clientes_uma_compra)} clientes que compraram apenas uma vez")
+
+            # Filtros
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                min_valor = st.number_input(
+                    "Valor mínimo",
+                    min_value=0.0,
+                    value=0.0,
+                    step=100.0
+                )
+
+            with col2:
+                max_dias = st.slider(
+                    "Máximo de dias sem comprar",
+                    min_value=1,
+                    max_value=365,
+                    value=90
+                )
+
+            with col3:
+                ordenar_por = st.selectbox(
+                    "Ordenar por",
+                    ["total_compras", "dias_desde_ultima", "ultima_compra"],
+                    format_func=lambda x: {
+                        "total_compras": "Valor Total",
+                        "dias_desde_ultima": "Dias sem Comprar",
+                        "ultima_compra": "Data da Compra"
+                    }[x]
+                )
+
+            # Aplicar filtros
+            filtered_clientes = []
+            for cliente in clientes_uma_compra:
+                if (cliente['total_compras'] >= min_valor and
+                    cliente['dias_desde_ultima'] <= max_dias):
+                    filtered_clientes.append(cliente)
+
+            # Ordenar
+            filtered_clientes.sort(key=lambda x: x[ordenar_por], reverse=(ordenar_por == 'total_compras'))
+
+            st.success(f"📋 Mostrando {len(filtered_clientes)} clientes após filtros")
+
+            # Lista de clientes
+            for i, cliente in enumerate(filtered_clientes[:20]):  # Limitar a 20 para performance
+                with st.expander(f"👤 {cliente['parceiro']} - R$ {cliente['total_compras']:,.2f}"):
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric("Valor da Compra", f"R$ {cliente['total_compras']:,.2f}")
+                        st.metric("Ticket Médio", f"R$ {cliente['ticket_medio']:,.2f}")
+
+                    with col2:
+                        st.metric("Dias sem Comprar", cliente['dias_desde_ultima'])
+                        st.metric("Data da Compra", cliente['ultima_compra'])
+
+                    with col3:
+                        st.metric("Segmento", cliente['segmento'])
+                        st.metric("Qtd. Produtos", len(cliente['produtos']))
+
+                    # Produtos comprados
+                    st.write("**🛒 Produtos Comprados:**")
+                    produtos_df = pd.DataFrame(cliente['produtos'])
+                    if not produtos_df.empty:
+                        st.dataframe(
+                            produtos_df[['produto', 'quantidade', 'total', 'data']],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                    # Script de follow-up sugerido
+                    st.write("**💬 Sugestão de Abordagem:**")
+                    if cliente['dias_desde_ultima'] < 30:
+                        st.info(f"Cliente comprou recentemente! Ofereça produtos complementares ou upgrade dos produtos já comprados.")
+                    elif cliente['dias_desde_ultima'] < 90:
+                        st.warning(f"Cliente não compra há {cliente['dias_desde_ultima']} dias. Envie oferta especial para retorno.")
+                    else:
+                        st.error(f"Cliente inativo há {cliente['dias_desde_ultima']} dias. Considere campanha de reativação agressiva.")
+
+            # Botão para baixar lista completa
+            if filtered_clientes:
+                # Preparar dados para CSV
+                csv_data = []
+                for cliente in filtered_clientes:
+                    base_info = {
+                        'Cliente': cliente['parceiro'],
+                        'Valor_Compra': cliente['total_compras'],
+                        'Ticket_Medio': cliente['ticket_medio'],
+                        'Dias_Sem_Comprar': cliente['dias_desde_ultima'],
+                        'Data_Ultima_Compra': cliente['ultima_compra'],
+                        'Segmento': cliente['segmento'],
+                        'Qtd_Produtos': len(cliente['produtos'])
+                    }
+
+                    # Adicionar produtos
+                    for prod in cliente['produtos']:
+                        row = base_info.copy()
+                        row.update({
+                            'Produto': prod['produto'],
+                            'Quantidade': prod['quantidade'],
+                            'Valor_Produto': prod['total'],
+                            'Data_Compra': prod['data']
+                        })
+                        csv_data.append(row)
+
+                csv_df = pd.DataFrame(csv_data)
+                csv = csv_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Baixar Lista Completa de Clientes (Uma Compra)",
+                    data=csv,
+                    file_name=f"clientes_uma_compra_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+        else:
+            st.warning("Nenhum cliente encontrado com apenas uma compra.")
 
 def show_relatorios(db, analisador_clientes, analisador_produtos):
     """Página de relatórios executivos"""
