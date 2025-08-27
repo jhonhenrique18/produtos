@@ -24,26 +24,39 @@ st.set_page_config(
 # Inicializar banco de dados
 @st.cache_resource
 def init_database():
-    # Usar banco de produção
     import os
+
+    # Garantir que o setup inicial seja executado se necessário
+    if not os.path.exists('database_production.db') and not os.path.exists('database.db'):
+        print("Executando setup inicial...")
+        try:
+            from startup import setup_database
+            setup_database()
+        except Exception as e:
+            print(f"Erro no setup inicial: {e}")
+
+    # Usar banco de produção
     if os.path.exists('database_production.db'):
         db_path = 'database_production.db'
     else:
         db_path = 'database.db'
-    
+
     db = DatabaseManager(db_path)
-    
+
     # Verificar se precisa importar dados iniciais
     conn = db.connect()
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM vendas")
     count = cursor.fetchone()[0]
-    
+
+    print(f"Inicializando banco: {db_path} com {count} registros")
+
     # Sempre atualizar métricas se o banco existir e tiver dados
     if count > 0:
         # Verificar se as tabelas v2 existem e têm dados
         cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clientes_metricas_v2'")
         if cursor.fetchone()[0] == 0:
+            print("Criando tabelas de métricas v2...")
             db.update_metrics()  # Cria as tabelas v2 e popula
         else:
             cursor.execute("SELECT COUNT(*) FROM clientes_metricas_v2")

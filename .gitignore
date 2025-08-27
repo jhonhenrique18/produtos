@@ -24,9 +24,9 @@ wheels/
 *.egg
 
 # Database
-*.db
-*.sqlite
-*.sqlite3
+# *.db  # REMOVIDO TEMPORARIAMENTE PARA INCLUIR DADOS NO RAILWAY
+# *.sqlite
+# *.sqlite3
 
 # CSV data files (sensitive data)
 *.csv
